@@ -31,7 +31,7 @@ def simulate_laser_with_slits(
     central_wavelength=1e-6,
     bandwidth=10e-9,
     grid_size=512,
-    grid_diameter=5,
+    grid_diameter=5e-3,
     beam_waist_input=2e-3,
     slit_sep=0.5e-3,
     slit_width=1e-4,
@@ -84,7 +84,7 @@ def simulate_laser_with_slits(
     # Add sunlight (scaled small relative to laser)
     sunlight = generate_sunlight_field(pupil_grid)
     sun_scaling = 0.765  # ASTM-based attenuation near 1050 nm
-    #E_before_slit += sun_scaling * sunlight
+    E_before_slit += sun_scaling * sunlight
 
     # Apply double slit
     E_after_slit = E_before_slit * slit_mask
@@ -157,32 +157,6 @@ def simulate_laser_with_slits(
 
     return intensity_maps[-1][0]
 
-import os
-import zipfile
-
-# --- OPTIONAL: Save all generated figures into a ZIP file ---
-def save_all_figures_to_zip(zip_filename="simulation_results.zip"):
-    # Save each active figure into a temporary PNG file
-    fig_files = []
-    for i, fig_num in enumerate(plt.get_fignums()):
-        fig = plt.figure(fig_num)
-        fname = f"figure_{i+76}.png"
-        fig.savefig(fname, dpi=300, bbox_inches="tight")
-        fig_files.append(fname)
-
-    # Create ZIP archive and add all PNGs
-    with zipfile.ZipFile(zip_filename, "w") as zipf:
-        for fname in fig_files:
-            zipf.write(fname)
-            os.remove(fname)  # cleanup individual PNGs
-
-    print(f"✅ Saved {len(fig_files)} figures into {zip_filename}")
-
-# Call this after plt.show() IF you want to save results
-# save_all_figures_to_zip("my_laser_sim_results.zip")
-
-#save_all_figures_to_zip("laser+sun_separated_plots.zip")
-
 
 def main():
     simulate_laser_with_slits(show_plot=True)
@@ -190,6 +164,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-#check 123
-
-print(1+1)

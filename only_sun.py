@@ -31,7 +31,7 @@ def simulate_laser_with_slits(
     central_wavelength=1e-6,
     bandwidth=10e-9,
     grid_size=512,
-    grid_diameter=5,
+    grid_diameter=5e-3,
     beam_waist_input=2e-3,
     slit_sep=0.5e-3,
     slit_width=1e-4,

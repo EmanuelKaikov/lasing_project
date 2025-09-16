@@ -60,79 +60,78 @@ def _kolmogorov_phase_screen(N, dx, r0):
     phi = np.real(phi) * (N**2)  # compensate numpy's ifft scaling
     return phi
 
-def propagate_with_turbulence(
-    wf,
-    pupil_grid,
-    wavelength,
-    L_total=8000.0,
-    N_screens=12,
-    r0_total=None,
-    Cn2=None,
-    L0=25.0,
-    l0=0.005,
-):
+def propagate_with_turbulence(wf, pupil_grid, wavelength, L_total=8000.0, N_screens=12,
+                              r0_total=None, Cn2=None, L0=25.0, l0=0.01):
     """
-    HCIPy-only split-step turbulence using InfiniteAtmosphericLayer.
-    No custom phase screens, no fallbacks.
+    Prefer HCIPy built-in InfiniteAtmosphericLayer if available; otherwise fall back
+    to split-step custom Kolmogorov phase screens. The 8 km segment fully replaces
+    vacuum propagation.
 
-    Exactly one of r0_total or Cn2 must be provided.
+    Args:
+        wf            : hcipy.Wavefront
+        pupil_grid    : HCIPy grid
+        wavelength    : meters
+        L_total       : meters (default 8000.0)
+        N_screens     : number of split steps (8–16 is reasonable)
+        r0_total      : Fried parameter for the entire path (meters), OR
+        Cn2           : constant refractive index structure constant (m^-2/3)
+        L0, l0        : outer/inner scales for built-in (if used)
+
+    Returns:
+        wf (propagated through turbulence)
     """
-    if (r0_total is None) == (Cn2 is None):
-        raise ValueError("Provide exactly one of r0_total or Cn2.")
+    assert (r0_total is not None) ^ (Cn2 is not None), "Provide exactly one of r0_total or Cn2."
 
     k = 2.0 * np.pi / wavelength
-
-    # If user supplied Cn2 for the whole path, convert to total-path r0
-    if r0_total is None:
-        # r0_total = [0.423 * k^2 * Cn2 * L_total]^(-3/5)
+    if Cn2 is not None:
+        # r0_total = [0.423 k^2 Cn2 L]^(-3/5)
         r0_total = (0.423 * (k**2) * Cn2 * L_total) ** (-3.0/5.0)
 
     dz = L_total / float(N_screens)
-
-    # Per-step Fried parameter so that N steps reproduce r0_total:
-    # r0_step = r0_total * (dz / L_total)^(3/5)
     r0_step = r0_total * (dz / L_total) ** (3.0/5.0)
 
-    # Convert r0_step back to a per-step constant Cn2_step over dz:
-    # r0_step = [0.423 * k^2 * Cn2_step * dz]^(-3/5)  =>  Cn2_step = ...
-    Cn2_step = (r0_step ** (-5.0/3.0)) / (0.423 * (k**2) * dz)
-
+    N, dx, _ = _infer_grid_sampling(pupil_grid)
     step_prop = AngularSpectrumPropagator(pupil_grid, dz)
 
-    # Helper: build a layer across HCIPy versions (constructor signatures differ)
-    def make_layer():
-        # Try positional (Cn2, wavelength, L0, l0)
-        try:
-            return InfiniteAtmosphericLayer(pupil_grid, Cn2_step, wavelength, L0, l0)
-        except TypeError:
-            pass
-        # Try positional without outer/inner scales
-        try:
-            return InfiniteAtmosphericLayer(pupil_grid, Cn2_step, wavelength)
-        except TypeError:
-            pass
-        # Try keyword form
-        try:
-            return InfiniteAtmosphericLayer(pupil_grid, Cn2=Cn2_step, wavelength=wavelength, L0=L0, l0=l0)
-        except TypeError:
-            pass
-        # Try minimal keyword form
-        try:
-            return InfiniteAtmosphericLayer(pupil_grid, Cn2=Cn2_step, wavelength=wavelength)
-        except Exception as e:
-            raise RuntimeError(
-                "Could not construct HCIPy InfiniteAtmosphericLayer with any known signature. "
-                "Please check your HCIPy version."
-            ) from e
+    # Try built-in InfiniteAtmosphericLayer API variants; fall back if not available
+    use_builtin = False
+    layer_ctor = None
+    try:
+        # Common HCIPy API variant: InfiniteAtmosphericLayer(grid, r0=..., L0=..., l0=...)
+        layer_ctor = lambda: InfiniteAtmosphericLayer(pupil_grid, r0=r0_step, L0=L0, l0=l0)
+        # Test-create once
+        _test_layer = layer_ctor()
+        # Check how to apply: callable vs forward()
+        def apply_layer(wfin):
+            try:
+                return _test_layer(wfin)  # callable in some versions
+            except TypeError:
+                return _test_layer.forward(wfin)
+        use_builtin = True
+    except Exception:
+        use_builtin = False
 
-    # Apply N layers with free-space propagation between them
     for _ in range(N_screens):
-        layer = make_layer()
-        # Some versions support __call__, others .forward()
-        try:
-            wf = layer(wf)
-        except TypeError:
-            wf = layer.forward(wf)
+        if use_builtin:
+            # Re-create a step-strength layer (so total across steps ~ r0_total)
+            try:
+                layer = layer_ctor()
+                try:
+                    wf = layer(wf)
+                except TypeError:
+                    wf = layer.forward(wf)
+            except Exception:
+                # If anything goes wrong, drop to custom phase screen
+                use_builtin = False
+
+        if not use_builtin:
+            # Custom Kolmogorov phase screen for this step
+            phi = _kolmogorov_phase_screen(N, dx, r0_step)
+            ef = wf.electric_field.shaped
+            ef *= np.exp(1j * phi)
+            wf.electric_field = ef.ravel()
+
+        # Free-space propagate one step
         wf = step_prop(wf)
 
     return wf
@@ -142,8 +141,8 @@ def propagate_with_turbulence(
 def simulate_laser_with_slits(
     central_wavelength=1e-6,
     bandwidth=10e-9,
-    grid_size=512*2,                 # make sure it's int
-    grid_diameter=8e-3,            # 5 mm full width
+    grid_size=512,                 # make sure it's int
+    grid_diameter=5e-3,            # 5 mm full width
     beam_waist_input=2e-3,         # 2 mm waist at source
     slit_sep=0.5e-3,               # 0.5 mm
     slit_width=1e-4,               # 0.1 mm
@@ -153,8 +152,7 @@ def simulate_laser_with_slits(
     # Turbulence controls (choose ONE of the next two)
     r0_total=None,                 # e.g., 0.10 for 10 cm at 1 µm over 8 km
     Cn2=1e-15,                     # OR use Cn2 and compute r0_total for L=8 km
-    N_screens=1,
-    P=0.5,
+    N_screens=12,
     show_plot=True):
 
     grid_size = int(grid_size)
@@ -183,10 +181,6 @@ def simulate_laser_with_slits(
     # --- Stage 1: broadband emission + 8 km turbulent propagation ---
     for wl, weight in zip(wavelengths, weights):
         field = np.exp(-(pupil_grid.x**2 + pupil_grid.y**2) / beam_waist**2)
-
-        S = np.sqrt(P / (0.5 * np.pi * beam_waist**2))
-        field *= S
-
         wf = Wavefront(Field(field, pupil_grid), wl)
 
         # store emitted (summed over spectrum)
@@ -312,19 +306,18 @@ def main():
     simulate_laser_with_slits(
         central_wavelength=1e-6,
         bandwidth=10e-9,
-        grid_size=1024,
-        grid_diameter=8e-3,
+        grid_size=512,
+        grid_diameter=5e-1,
         beam_waist_input=2e-3,
         slit_sep=0.5e-3,
         slit_width=1e-4,
         z_before_slits=8000.0,
         z_after_slits=0.1,
-        n_wavelengths=10,
+        n_wavelengths=8,
         # Choose ONE:
-        #r0_total=0.10,        # set total-path r0 directly (meters)
-        Cn2=1e-15,              # or provide Cn2 and compute r0 for 8 km
-        N_screens=2,
-        P = 0.5,
+        # r0_total=0.10,        # set total-path r0 directly (meters)
+        Cn2=1e-22,              # or provide Cn2 and compute r0 for 8 km
+        N_screens=6,
         show_plot=True
     )
 

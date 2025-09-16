@@ -36,8 +36,8 @@ def propagate_with_turbulence(
     pupil_grid,
     wavelength,
     L_total=8000.0,
-    N_screens=12,
-    r0_total=None,
+    N_screens=2,
+    r0_total=0.10,
     Cn2=None,
     L0=25.0,
     l0=0.01,
@@ -81,8 +81,8 @@ def propagate_with_turbulence(
 def simulate_laser_with_slits(
     central_wavelength=1e-6,
     bandwidth=10e-9,
-    grid_size=512,                 # ensure int
-    grid_diameter=5e-3,            # 5 mm full width
+    grid_size=128,                 # ensure int
+    grid_diameter=5,            # 5 mm full width
     beam_waist_input=2e-3,         # 2 mm waist at source
     slit_sep=0.5e-3,               # 0.5 mm
     slit_width=1e-4,               # 0.1 mm
@@ -92,7 +92,7 @@ def simulate_laser_with_slits(
     # Turbulence controls (choose ONE of the next two)
     r0_total=None,                 # e.g. 0.10 for 10 cm at 1 µm over 8 km
     Cn2=1e-15,                     # OR use Cn2 and compute r0_total for L=8 km
-    N_screens=12,
+    N_screens=6,
     P=0.5,
     show_plot=True
 ):
@@ -181,19 +181,31 @@ def simulate_laser_with_slits(
 
     if show_plot:
         fig, axs = plt.subplots(2, 2, figsize=(10, 8))
-        im0 = axs[0, 0].imshow(I_initial, origin='lower', extent=[-grid_diameter/2, grid_diameter/2, -grid_diameter/2, grid_diameter/2])
+        im0 = axs[0, 0].imshow(I_initial, origin='lower',
+                               extent=[-grid_diameter / 2, grid_diameter / 2,
+                                       -grid_diameter / 2, grid_diameter / 2],
+                               cmap='Blues')
         axs[0, 0].set_title('Initial intensity')
         plt.colorbar(im0, ax=axs[0, 0], fraction=0.046, pad=0.04)
 
-        im1 = axs[0, 1].imshow(I_before, origin='lower', extent=[-grid_diameter/2, grid_diameter/2, -grid_diameter/2, grid_diameter/2])
+        im1 = axs[0, 1].imshow(I_before, origin='lower',
+                               extent=[-grid_diameter / 2, grid_diameter / 2,
+                                       -grid_diameter / 2, grid_diameter / 2],
+                               cmap='Blues')
         axs[0, 1].set_title('Before slits (after turbulence)')
         plt.colorbar(im1, ax=axs[0, 1], fraction=0.046, pad=0.04)
 
-        im2 = axs[1, 0].imshow(I_after, origin='lower', extent=[-grid_diameter/2, grid_diameter/2, -grid_diameter/2, grid_diameter/2])
+        im2 = axs[1, 0].imshow(I_after, origin='lower',
+                               extent=[-grid_diameter / 2, grid_diameter / 2,
+                                       -grid_diameter / 2, grid_diameter / 2],
+                               cmap='Blues')
         axs[1, 0].set_title('After slits')
         plt.colorbar(im2, ax=axs[1, 0], fraction=0.046, pad=0.04)
 
-        im3 = axs[1, 1].imshow(I_final, origin='lower', extent=[-grid_diameter/2, grid_diameter/2, -grid_diameter/2, grid_diameter/2])
+        im3 = axs[1, 1].imshow(I_final, origin='lower',
+                               extent=[-grid_diameter / 2, grid_diameter / 2,
+                                       -grid_diameter / 2, grid_diameter / 2],
+                               cmap='Blues')
         axs[1, 1].set_title('Screen (z = %.3f m)' % z_after_slits)
         plt.colorbar(im3, ax=axs[1, 1], fraction=0.046, pad=0.04)
 
@@ -211,7 +223,7 @@ def main():
     _ = simulate_laser_with_slits(
         central_wavelength=1.0e-6,
         bandwidth=10e-9,
-        grid_size=512,
+        grid_size=256,
         grid_diameter=5e-3,
         beam_waist_input=2e-3,
         slit_sep=0.5e-3,
@@ -220,8 +232,8 @@ def main():
         z_after_slits=0.1,
         n_wavelengths=10,
         # Choose one turbulence parameterization:
-        # r0_total=0.10,
-        Cn2=1e-15,
+        #r0_total=0.01,
+        Cn2=10e-15,
         N_screens=2,
         P=0.5,
         show_plot=True
